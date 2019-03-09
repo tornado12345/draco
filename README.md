@@ -3,6 +3,44 @@
 <img src="docs/DracoLogo.jpeg" />
 </p>
 
+News
+=======
+### Version 1.3.5 release
+* Added option to build Draco for Universal Scene Description
+* Code cleanup
+* Bug fixes
+
+### Version 1.3.4 release
+* Released Draco Animation code
+* Fixes for Unity
+* Various file location and name changes
+
+### Version 1.3.3 release
+* Added ExpertEncoder to the Javascript API
+  * Allows developers to set quantization options per attribute id
+* Bug fixes
+
+### Version 1.3.2 release
+* Bug fixes
+
+### Version 1.3.1 release
+* Fix issue with multiple attributes when skipping an attribute transform
+
+### Version 1.3.0 release
+* Improved kD-tree based point cloud encoding
+  * Now applicable to point clouds with any number of attributes
+  * Support for all integer attribute types and quantized floating point types
+* Improved mesh compression up to 10% (on average ~2%)
+  * For meshes, the 1.3.0 bitstream is fully compatible with 1.2.x decoders
+* Improved Javascript API
+  * Added support for all signed and unsigned integer types
+  * Added support for point clouds to our Javascript encoder API
+* Added support for integer properties to the PLY decoder
+* Bug fixes
+
+### Previous releases
+https://github.com/google/draco/releases
+
 Description
 ===========
 
@@ -29,19 +67,23 @@ _**Contents**_
     * [CMake Basics](#cmake-basics)
     * [Mac OS X](#mac-os-x)
     * [Windows](#windows)
-    * [CMake Build Configuration](#cmake-build-config)
+    * [CMake Build Configuration](#cmake-build-configuration)
       * [Debugging and Optimization](#debugging-and-optimization)
       * [Googletest Integration](#googletest-integration)
-      * [Javascript Decoder](#javascript-decoder)
+      * [Javascript Encoder/Decoder](#javascript-encoderdecoder)
     * [Android Studio Project Integration](#android-studio-project-integration)
+    * [Native Android Builds](#native-android-builds)
   * [Usage](#usage)
     * [Command Line Applications](#command-line-applications)
     * [Encoding Tool](#encoding-tool)
     * [Encoding Point Clouds](#encoding-point-clouds)
     * [Decoding Tool](#decoding-tool)
     * [C++ Decoder API](#c-decoder-api)
+    * [Javascript Encoder API](#javascript-encoder-api)
     * [Javascript Decoder API](#javascript-decoder-api)
     * [Javascript Decoder Performance](#javascript-decoder-performance)
+    * [Metadata API](#metadata-api)
+    * [NPM Package](#npm-package)
     * [three.js Renderer Example](#threejs-renderer-example)
   * [Support](#support)
   * [License](#license)
@@ -134,6 +176,12 @@ And your standard debug build will be produced using:
 $ cmake path/to/draco -DCMAKE_BUILD_TYPE=debug
 ~~~~~
 
+To enable the use of sanitizers when the compiler in use supports them, set the
+sanitizer type when running CMake:
+
+~~~~~ bash
+$ cmake path/to/draco -DSANITIZE=address
+~~~~~
 
 Googletest Integration
 ----------------------
@@ -158,12 +206,12 @@ To run the tests just execute `draco_tests` from your toolchain's build output
 directory.
 
 
-Javascript Decoder
+Javascript Encoder/Decoder
 ------------------
 
-The javascript decoder can be built using the existing cmake build file by
-passing the path the Emscripten's cmake toolchain file at cmake generation time
-in the CMAKE_TOOLCHAIN_FILE variable.
+The javascript encoder and decoder can be built using the existing cmake build
+file by passing the path the Emscripten's cmake toolchain file at cmake
+generation time in the CMAKE_TOOLCHAIN_FILE variable.
 In addition, the EMSCRIPTEN environment variable must be set to the local path
 of the parent directory of the Emscripten tools directory.
 
@@ -174,6 +222,57 @@ $ export EMSCRIPTEN=/path/to/emscripten/tools/parent
 # Emscripten.cmake can be found within your Emscripten installation directory,
 # it should be the subdir: cmake/Modules/Platform/Emscripten.cmake
 $ cmake path/to/draco -DCMAKE_TOOLCHAIN_FILE=/path/to/Emscripten.cmake
+
+# Build the Javascript encoder and decoder.
+$ make
+~~~~~
+
+WebAssembly Decoder
+-------------------
+
+The WebAssembly decoder can be built using the existing cmake build file by
+passing the path the Emscripten's cmake toolchain file at cmake generation time
+in the CMAKE_TOOLCHAIN_FILE variable and enabling the WASM build option.
+In addition, the EMSCRIPTEN environment variable must be set to the local path
+of the parent directory of the Emscripten tools directory.
+
+Make sure to have the correct version of Emscripten installed for WebAssembly
+builds. See https://developer.mozilla.org/en-US/docs/WebAssembly.
+
+~~~~~ bash
+# Make the path to emscripten available to cmake.
+$ export EMSCRIPTEN=/path/to/emscripten/tools/parent
+
+# Emscripten.cmake can be found within your Emscripten installation directory,
+# it should be the subdir: cmake/Modules/Platform/Emscripten.cmake
+$ cmake path/to/draco -DCMAKE_TOOLCHAIN_FILE=/path/to/Emscripten.cmake -DENABLE_WASM=ON
+
+# Build the WebAssembly decoder.
+$ make
+
+# Run the Javascript wrapper through Closure.
+$ java -jar closure.jar --compilation_level SIMPLE --js draco_decoder.js --js_output_file draco_wasm_wrapper.js
+
+~~~~~
+
+WebAssembly Mesh Only Decoder
+-----------------------------
+
+~~~~~ bash
+
+# cmake command line for mesh only WebAssembly decoder.
+$ cmake path/to/draco -DCMAKE_TOOLCHAIN_FILE=/path/to/Emscripten.cmake -DENABLE_WASM=ON -DENABLE_POINT_CLOUD_COMPRESSION=OFF
+
+~~~~~
+
+WebAssembly Point Cloud Only Decoder
+-----------------------------
+
+~~~~~ bash
+
+# cmake command line for point cloud only WebAssembly decoder.
+$ cmake path/to/draco -DCMAKE_TOOLCHAIN_FILE=/path/to/Emscripten.cmake -DENABLE_WASM=ON -DENABLE_MESH_COMPRESSION=OFF
+
 ~~~~~
 
 
@@ -182,7 +281,8 @@ Android Studio Project Integration
 
 To include Draco in an existing or new Android Studio project, reference it
 from the `cmake` file of an existing native project that has a minimum SDK
-version of 18 or higher. To add Draco to your project:
+version of 18 or higher. The project must support C++11.
+To add Draco to your project:
 
   1. Add the following somewhere within the `CMakeLists.txt` for your project
      before the `add_library()` for your project's native-lib:
@@ -212,6 +312,56 @@ version of 18 or higher. To add Draco to your project:
                             # included in the NDK.
                             ${log-lib} )
      ~~~~~
+  3. Add macro to build.gradle for the features you need:
+     ~~~~~ cmake
+     android {
+         ...
+         defaultConfig {
+             ...
+             externalNativeBuild {
+                 cmake {
+                     cppFlags "-std=c++11"
+                     arguments "-DANDROID_STL=c++_shared"
+                 }
+             }
+         }
+         externalNativeBuild {
+             cmake {
+                 path "CMakeLists.txt"
+             }
+         }
+     }
+
+Native Android Builds
+---------------------
+
+It's sometimes useful to build Draco command line tools and run them directly on
+Android devices via adb.
+
+~~~~~ bash
+# All targets require CMAKE_ANDROID_NDK. It must be set in the environment.
+$ export CMAKE_ANDROID_NDK=path/to/ndk
+
+# arm
+$ cmake path/to/draco -DCMAKE_TOOLCHAIN_FILE=path/to/draco/cmake/toolchains/armv7-android-ndk-libcpp.cmake
+$ make
+
+# arm64
+$ cmake path/to/draco -DCMAKE_TOOLCHAIN_FILE=path/to/draco/cmake/toolchains/arm64-android-ndk-libcpp.cmake
+$ make
+
+# x86
+$ cmake path/to/draco -DCMAKE_TOOLCHAIN_FILE=path/to/draco/cmake/toolchains/x86-android-ndk-libcpp.cmake
+$ make
+
+# x86_64
+$ cmake path/to/draco -DCMAKE_TOOLCHAIN_FILE=path/to/draco/cmake/toolchains/x86_64-android-ndk-libcpp.cmake
+$ make
+~~~~~
+
+After building the tools they can be moved to an android device via the use of
+`adb push`, and then run within an `adb shell` instance.
+
 
 Usage
 ======
@@ -247,7 +397,7 @@ will quantize the positions to 14 bits (default for the position coordinates).
 
 In general, the more you quantize your attributes the better compression rate
 you will get. It is up to your project to decide how much deviation it will
-tolerate. In general, most projects can set quantizations values of about `14`
+tolerate. In general, most projects can set quantization values of about `14`
 without any noticeable difference in quality.
 
 The compression level (`-cl`) parameter turns on/off different compression
@@ -259,15 +409,15 @@ features.
 
 In general, the highest setting, `10`, will have the most compression but
 worst decompression speed. `0` will have the least compression, but best
-decompression speed. The default setting is `5`.
+decompression speed. The default setting is `7`.
 
 Encoding Point Clouds
 ---------------------
 
 You can encode point cloud data with `draco_encoder` by specifying the
-`point_cloud parameter`. If you specify the `point_cloud parameter` with a mesh
-input file, `draco_encoder` will ignore the connectivity data and encode the
-positions from the mesh file.
+`-point_cloud` parameter. If you specify the `-point_cloud` parameter with a
+mesh input file, `draco_encoder` will ignore the connectivity data and encode
+the positions from the mesh file.
 
 ~~~~~ bash
 ./draco_encoder -point_cloud -i testdata/bun_zipper.ply -o out.drc
@@ -311,39 +461,112 @@ if (geom_type == draco::TRIANGULAR_MESH) {
 }
 ~~~~~
 
-Please see `mesh/mesh.h` for the full Mesh class interface and
-`point_cloud/point_cloud.h` for the full `PointCloud` class interface.
+Please see [src/draco/mesh/mesh.h](src/draco/mesh/mesh.h) for the full `Mesh` class interface and
+[src/draco/point_cloud/point_cloud.h](src/draco/point_cloud/point_cloud.h) for the full `PointCloud` class interface.
+
+
+Javascript Encoder API
+----------------------
+The Javascript encoder is located in `javascript/draco_encoder.js`. The encoder
+API can be used to compress mesh and point cloud. In order to use the encoder,
+you need to first create an instance of `DracoEncoderModule`. Then use this
+instance to create `MeshBuilder` and `Encoder` objects. `MeshBuilder` is used
+to construct a mesh from geometry data that could be later compressed by
+`Encoder`. First create a mesh object using `new encoderModule.Mesh()` . Then,
+use `AddFacesToMesh()` to add indices to the mesh and use
+`AddFloatAttributeToMesh()` to add attribute data to the mesh, e.g. position,
+normal, color and texture coordinates. After a mesh is constructed, you could
+then use `EncodeMeshToDracoBuffer()` to compress the mesh. For example:
+
+~~~~~ js
+const mesh = {
+  indices : new Uint32Array(indices),
+  vertices : new Float32Array(vertices),
+  normals : new Float32Array(normals)
+};
+
+const encoderModule = DracoEncoderModule();
+const encoder = new encoderModule.Encoder();
+const meshBuilder = new encoderModule.MeshBuilder();
+const dracoMesh = new encoderModule.Mesh();
+
+const numFaces = mesh.indices.length / 3;
+const numPoints = mesh.vertices.length;
+meshBuilder.AddFacesToMesh(dracoMesh, numFaces, mesh.indices);
+
+meshBuilder.AddFloatAttributeToMesh(dracoMesh, encoderModule.POSITION,
+  numPoints, 3, mesh.vertices);
+if (mesh.hasOwnProperty('normals')) {
+  meshBuilder.AddFloatAttributeToMesh(
+    dracoMesh, encoderModule.NORMAL, numPoints, 3, mesh.normals);
+}
+if (mesh.hasOwnProperty('colors')) {
+  meshBuilder.AddFloatAttributeToMesh(
+    dracoMesh, encoderModule.COLOR, numPoints, 3, mesh.colors);
+}
+if (mesh.hasOwnProperty('texcoords')) {
+  meshBuilder.AddFloatAttributeToMesh(
+    dracoMesh, encoderModule.TEX_COORD, numPoints, 3, mesh.texcoords);
+}
+
+if (method === "edgebreaker") {
+  encoder.SetEncodingMethod(encoderModule.MESH_EDGEBREAKER_ENCODING);
+} else if (method === "sequential") {
+  encoder.SetEncodingMethod(encoderModule.MESH_SEQUENTIAL_ENCODING);
+}
+
+const encodedData = new encoderModule.DracoInt8Array();
+// Use default encoding setting.
+const encodedLen = encoder.EncodeMeshToDracoBuffer(dracoMesh,
+                                                   encodedData);
+encoderModule.destroy(dracoMesh);
+encoderModule.destroy(encoder);
+encoderModule.destroy(meshBuilder);
+
+~~~~~
+Please see [src/draco/javascript/emscripten/draco_web_encoder.idl](src/draco/javascript/emscripten/draco_web_encoder.idl) for the full API.
 
 Javascript Decoder API
 ----------------------
 
-The Javascript decoder is located in `javascript/draco_decoder.js`. The
+The Javascript decoder is located in [javascript/draco_decoder.js](javascript/draco_decoder.js). The
 Javascript decoder can decode mesh and point cloud. In order to use the
-decoder you must first create `DecoderBuffer` and `WebIDLWrapper` objects. Set
+decoder, you must first create an instance of `DracoDecoderModule`. The
+instance is then used to create `DecoderBuffer` and `Decoder` objects. Set
 the encoded data in the `DecoderBuffer`. Then call `GetEncodedGeometryType()`
 to identify the type of geometry, e.g. mesh or point cloud. Then call either
-`DecodeMeshFromBuffer()` or `DecodePointCloudFromBuffer()`, which will return
+`DecodeBufferToMesh()` or `DecodeBufferToPointCloud()`, which will return
 a Mesh object or a point cloud. For example:
 
 ~~~~~ js
-const buffer = new Module.DecoderBuffer();
-buffer.Init(encFileData, encFileData.length);
+// Create the Draco decoder.
+const decoderModule = DracoDecoderModule();
+const buffer = new decoderModule.DecoderBuffer();
+buffer.Init(byteArray, byteArray.length);
 
-const wrapper = new Module.WebIDLWrapper();
-const geometryType = wrapper.GetEncodedGeometryType(buffer);
+// Create a buffer to hold the encoded data.
+const decoder = new decoderModule.Decoder();
+const geometryType = decoder.GetEncodedGeometryType(buffer);
+
+// Decode the encoded geometry.
 let outputGeometry;
-if (geometryType == Module.TRIANGULAR_MESH) {
-  outputGeometry = wrapper.DecodeMeshFromBuffer(buffer);
+let status;
+if (geometryType == decoderModule.TRIANGULAR_MESH) {
+  outputGeometry = new decoderModule.Mesh();
+  status = decoder.DecodeBufferToMesh(buffer, outputGeometry);
 } else {
-  outputGeometry = wrapper.DecodePointCloudFromBuffer(buffer);
+  outputGeometry = new decoderModule.PointCloud();
+  status = decoder.DecodeBufferToPointCloud(buffer, outputGeometry);
 }
 
-Module.destroy(outputGeometry);
-Module.destroy(wrapper);
-Module.destroy(buffer);
+// You must explicitly delete objects created from the DracoDecoderModule
+// or Decoder.
+decoderModule.destroy(outputGeometry);
+decoderModule.destroy(decoder);
+decoderModule.destroy(buffer);
 ~~~~~
 
-Please see `javascript/emscripten/draco_web.idl` for the full API.
+Please see [src/draco/javascript/emscripten/draco_web_decoder.idl](src/draco/javascript/emscripten/draco_web_decoder.idl) for the full API.
 
 Javascript Decoder Performance
 ------------------------------
@@ -352,7 +575,63 @@ The Javascript decoder is built with dynamic memory. This will let the decoder
 work with all of the compressed data. But this option is not the fastest.
 Pre-allocating the memory sees about a 2x decoder speed improvement. If you
 know all of your project's memory requirements, you can turn on static memory
-by changing `Makefile.emcc` and running `make -f Makefile.emcc`.
+by changing `CMakeLists.txt` accordingly.
+
+Metadata API
+------------
+Starting from v1.0, Draco provides metadata functionality for encoding data
+other than geometry. It could be used to encode any custom data along with the
+geometry. For example, we can enable metadata functionality to encode the name
+of attributes, name of sub-objects and customized information.
+For one mesh and point cloud, it can have one top-level geometry metadata class.
+The top-level metadata then can have hierarchical metadata. Other than that,
+the top-level metadata can have metadata for each attribute which is called
+attribute metadata. The attribute metadata should be initialized with the
+correspondent attribute id within the mesh. The metadata API is provided both
+in C++ and Javascript.
+For example, to add metadata in C++:
+
+~~~~~ cpp
+draco::PointCloud pc;
+// Add metadata for the geometry.
+std::unique_ptr<draco::GeometryMetadata> metadata =
+  std::unique_ptr<draco::GeometryMetadata>(new draco::GeometryMetadata());
+metadata->AddEntryString("description", "This is an example.");
+pc.AddMetadata(std::move(metadata));
+
+// Add metadata for attributes.
+draco::GeometryAttribute pos_att;
+pos_att.Init(draco::GeometryAttribute::POSITION, nullptr, 3,
+             draco::DT_FLOAT32, false, 12, 0);
+const uint32_t pos_att_id = pc.AddAttribute(pos_att, false, 0);
+
+std::unique_ptr<draco::AttributeMetadata> pos_metadata =
+    std::unique_ptr<draco::AttributeMetadata>(
+        new draco::AttributeMetadata(pos_att_id));
+pos_metadata->AddEntryString("name", "position");
+
+// Directly add attribute metadata to geometry.
+// You can do this without explicitly add |GeometryMetadata| to mesh.
+pc.AddAttributeMetadata(pos_att_id, std::move(pos_metadata));
+~~~~~
+
+To read metadata from a geometry in C++:
+
+~~~~~ cpp
+// Get metadata for the geometry.
+const draco::GeometryMetadata *pc_metadata = pc.GetMetadata();
+
+// Request metadata for a specific attribute.
+const draco::AttributeMetadata *requested_pos_metadata =
+  pc.GetAttributeMetadataByStringEntry("name", "position");
+~~~~~
+
+Please see [src/draco/metadata](src/draco/metadata) and [src/draco/point_cloud](src/draco/point_cloud) for the full API.
+
+NPM Package
+-----------
+Draco NPM NodeJS package is located in [javascript/npm/draco3d](javascript/npm/draco3d). Please see the
+doc in the folder for detailed usage.
 
 three.js Renderer Example
 -------------------------
@@ -360,7 +639,7 @@ three.js Renderer Example
 Here's an [example] of a geometric compressed with Draco loaded via a
 Javascript decoder using the `three.js` renderer.
 
-Please see the `javascript/example/README` file for more information.
+Please see the [javascript/example/README.md](javascript/example/README.md) file for more information.
 
 Support
 =======
@@ -393,6 +672,6 @@ References
 [meshes]: https://en.wikipedia.org/wiki/Polygon_mesh
 [point clouds]: https://en.wikipedia.org/wiki/Point_cloud
 [Bunny]: https://graphics.stanford.edu/data/3Dscanrep/
-[CONTRIBUTING]: https://raw.githubusercontent.com/google/draco/master/CONTRIBUTING
+[CONTRIBUTING]: https://raw.githubusercontent.com/google/draco/master/CONTRIBUTING.md
 
 Bunny model from Stanford's graphic department <https://graphics.stanford.edu/data/3Dscanrep/>
